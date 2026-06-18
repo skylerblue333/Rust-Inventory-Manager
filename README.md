@@ -1,0 +1,1 @@
+# Rust-Inventory-Manager\n\n## Overview\nEnterprise-grade inventory manager implementation in Rust.\n\n## Quick Start (1-Click Build)\n\n```bash\ngit clone https://github.com/skylerblue333/Rust-Inventory-Manager.git\ncd Rust-Inventory-Manager\n# Build instructions depend on the language\n```\n

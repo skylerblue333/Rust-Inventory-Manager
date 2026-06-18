@@ -1,0 +1,1 @@
+fn main() {\n    println!("Starting Rust-Inventory-Manager service...");\n}\n
