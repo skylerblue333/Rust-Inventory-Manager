@@ -1,4 +1,10 @@
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::{get, post, put},
+    Json, Router,
+};
 use serde::Deserialize;
 use std::env;
 
@@ -22,79 +28,98 @@ fn item_json(item: app::Item) -> serde_json::Value {
     })
 }
 
+fn json_response(status: StatusCode, value: serde_json::Value) -> Response {
+    (status, Json(value)).into_response()
+}
+
 async fn upsert(
-    inventory: web::Data<app::Inventory>,
-    req: web::Json<UpsertRequest>,
-) -> impl Responder {
+    State(inventory): State<app::Inventory>,
+    Json(req): Json<UpsertRequest>,
+) -> Response {
     match inventory.upsert(&req.sku, &req.name, req.quantity) {
-        Ok(item) => HttpResponse::Ok().json(item_json(item)),
-        Err(error) => HttpResponse::BadRequest().json(serde_json::json!({"error": error})),
+        Ok(item) => json_response(StatusCode::OK, item_json(item)),
+        Err(error) => json_response(StatusCode::BAD_REQUEST, serde_json::json!({"error": error})),
     }
 }
 
-async fn get_item(inventory: web::Data<app::Inventory>, sku: web::Path<String>) -> impl Responder {
-    match inventory.get(&sku.into_inner()) {
-        Ok(Some(item)) => HttpResponse::Ok().json(item_json(item)),
-        Ok(None) => HttpResponse::NotFound().json(serde_json::json!({"error": "sku not found"})),
-        Err(error) => HttpResponse::InternalServerError().json(serde_json::json!({"error": error})),
-    }
-}
-
-async fn list_items(inventory: web::Data<app::Inventory>) -> impl Responder {
-    match inventory.list() {
-        Ok(items) => HttpResponse::Ok().json(
-            items
-                .into_iter()
-                .map(item_json)
-                .collect::<Vec<serde_json::Value>>(),
+async fn get_item(
+    State(inventory): State<app::Inventory>,
+    Path(sku): Path<String>,
+) -> Response {
+    match inventory.get(&sku) {
+        Ok(Some(item)) => json_response(StatusCode::OK, item_json(item)),
+        Ok(None) => json_response(
+            StatusCode::NOT_FOUND,
+            serde_json::json!({"error": "sku not found"}),
         ),
-        Err(error) => HttpResponse::InternalServerError().json(serde_json::json!({"error": error})),
+        Err(error) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            serde_json::json!({"error": error}),
+        ),
+    }
+}
+
+async fn list_items(State(inventory): State<app::Inventory>) -> Response {
+    match inventory.list() {
+        Ok(items) => (
+            StatusCode::OK,
+            Json(items.into_iter().map(item_json).collect::<Vec<_>>()),
+        )
+            .into_response(),
+        Err(error) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            serde_json::json!({"error": error}),
+        ),
     }
 }
 
 async fn adjust(
-    inventory: web::Data<app::Inventory>,
-    sku: web::Path<String>,
-    req: web::Json<AdjustRequest>,
-) -> impl Responder {
-    match inventory.adjust(&sku.into_inner(), req.delta) {
-        Ok(item) => HttpResponse::Ok().json(item_json(item)),
-        Err("sku not found") => {
-            HttpResponse::NotFound().json(serde_json::json!({"error": "sku not found"}))
-        }
-        Err(error) => HttpResponse::BadRequest().json(serde_json::json!({"error": error})),
+    State(inventory): State<app::Inventory>,
+    Path(sku): Path<String>,
+    Json(req): Json<AdjustRequest>,
+) -> Response {
+    match inventory.adjust(&sku, req.delta) {
+        Ok(item) => json_response(StatusCode::OK, item_json(item)),
+        Err("sku not found") => json_response(
+            StatusCode::NOT_FOUND,
+            serde_json::json!({"error": "sku not found"}),
+        ),
+        Err(error) => json_response(StatusCode::BAD_REQUEST, serde_json::json!({"error": error})),
     }
 }
 
-async fn health() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({"status": "ok", "service": "sky-inventory"}))
+async fn health() -> Response {
+    json_response(
+        StatusCode::OK,
+        serde_json::json!({"status": "ok", "service": "sky-inventory"}),
+    )
 }
 
-async fn ready(inventory: web::Data<app::Inventory>) -> impl Responder {
+async fn ready(State(inventory): State<app::Inventory>) -> Response {
     match inventory.total_units() {
-        Ok(units) => {
-            HttpResponse::Ok().json(serde_json::json!({"status": "ready", "units": units}))
-        }
-        Err(error) => HttpResponse::ServiceUnavailable().json(serde_json::json!({"error": error})),
+        Ok(units) => json_response(
+            StatusCode::OK,
+            serde_json::json!({"status": "ready", "units": units}),
+        ),
+        Err(error) => json_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            serde_json::json!({"error": error}),
+        ),
     }
 }
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
     let bind = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
     let inventory = app::Inventory::new();
+    let router = Router::new()
+        .route("/v1/items", put(upsert).get(list_items))
+        .route("/v1/items/{sku}", get(get_item))
+        .route("/v1/items/{sku}/adjust", post(adjust))
+        .route("/healthz", get(health))
+        .route("/readyz", get(ready))
+        .with_state(inventory);
 
-    HttpServer::new(move || {
-        App::new()
-            .app_data(web::Data::new(inventory.clone()))
-            .route("/v1/items", web::put().to(upsert))
-            .route("/v1/items", web::get().to(list_items))
-            .route("/v1/items/{sku}", web::get().to(get_item))
-            .route("/v1/items/{sku}/adjust", web::post().to(adjust))
-            .route("/healthz", web::get().to(health))
-            .route("/readyz", web::get().to(ready))
-    })
-    .bind(bind)?
-    .run()
-    .await
+    let listener = tokio::net::TcpListener::bind(bind).await?;
+    axum::serve(listener, router).await
 }
