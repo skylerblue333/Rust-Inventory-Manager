@@ -1,10 +1,37 @@
-name: CI
-on: [push, pull_request]
+name: inventory-ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
 jobs:
-  test:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check
-      - run: cargo test
+        with:
+          components: rustfmt, clippy
+      - name: Generate dependency lock
+        run: cargo generate-lockfile
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Check
+        run: cargo check --all-targets --locked
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - name: Tests
+        run: cargo test --all-targets --locked
+      - name: Dependency audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+      - name: Build release
+        run: cargo build --release --locked
+      - name: Build image
+        run: docker build -t sky-inventory:ci .
+      - name: Verify non-root image
+        run: test "$(docker run --rm --entrypoint=id sky-inventory:ci -u)" != "0"
