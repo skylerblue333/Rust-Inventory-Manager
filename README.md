@@ -1,44 +1,83 @@
-<!-- PORTFOLIO PROJECT PROFILE: maintained by the repository owner -->
+# Sky Inventory — Rust Inventory Manager
 
-## Project profile and code-audit snapshot
+**Status: engineering beta.** This repository now implements a focused in-memory SKU inventory service in Rust/Actix Web. CI verifies formatting, compilation, Clippy, tests, dependency audit, release build, Docker build, and non-root image execution. Production deployment and durable storage are not verified here.
 
-**What this is:** **Rust-Inventory-Manager** is a public repository described as: “Enterprise-grade inventory manager implementation in Rust. #SkyCoin4444 #AI #Blockchain #DevOps #Innovation” Its dominant language signals are **Rust (2 files)**.
+## Implemented behavior
 
-**Why it has value:** Its value is best understood through the implementation evidence currently present in the repository: **16 tracked files** were observed in the shallow audit, with the source structure and existing documentation providing the project’s specific context. This README does not treat a prototype, experiment, or archive as a production system without supporting evidence.
+- Create or replace an item by SKU with validated name and starting quantity.
+- Retrieve one item or list all items in deterministic SKU order.
+- Atomically adjust stock while preventing negative inventory and integer overflow.
+- Report total units for readiness checks.
+- Return explicit 400/404/5xx responses instead of silently accepting invalid operations.
+- Run as a non-root container user.
 
-**Implementation evidence:** No test-related file was detected by filename heuristics.; 2 dependency or package manifest(s) detected; 2 build/CI/infrastructure signal(s) detected; and 3 documentation or governance file(s) detected. Test filenames observed include none detected. Dependency or package files include `Cargo.toml`, `package.json`. Build, CI, or infrastructure signals include `Dockerfile`, `.github/workflows/ci.yml`.
+## API
 
-**Current status:** The repository is tracked on the `main` branch. The existing source tree, configuration, tests, workflows, and documentation remain authoritative for supported behavior and maturity. A code audit is not a production-readiness certification, and the presence of a test or workflow file does not establish that all checks pass.
+- `PUT /v1/items`
+- `GET /v1/items`
+- `GET /v1/items/{sku}`
+- `POST /v1/items/{sku}/adjust`
+- `GET /healthz`
+- `GET /readyz`
 
-**Relationship to the wider portfolio:** This repository is one focused component of the broader Skyler Blue Spillers portfolio across AI, software engineering, cloud and DevOps, cybersecurity, blockchain, finance, education, social systems, and creative work. It may provide a service boundary, implementation pattern, experiment, archive, or reusable idea for related repositories. Treat repositories as technical dependencies only where documented interfaces and verified project requirements support that relationship.
+Create an item:
 
-**Quality and security note:** No obvious secret-like pattern was detected by the limited static scan; this is not a substitute for a security audit. No TODO/FIXME marker was detected in the scanned text files.
+```json
+{
+  "sku": "SKU-1001",
+  "name": "Example product",
+  "quantity": 12
+}
+```
 
----
+Adjust stock:
 
-# Rust Inventory Manager
+```json
+{
+  "delta": -2
+}
+```
 
-![GitHub stars](https://img.shields.io/github/stars/skylerblue333/Rust-Inventory-Manager?style=flat-square)
-![GitHub license](https://img.shields.io/github/license/skylerblue333/Rust-Inventory-Manager?style=flat-square)
+## Run locally
 
-## 🌟 Overview
-**Rust-Inventory-Manager** is a professional-grade project within the **SkyCoin4444** ecosystem. It focuses on delivering high-value solutions in the domain of **Rust**.
+```bash
+cargo run
+```
 
-## 🚀 Key Features
-- **Scalable Architecture**: Designed for enterprise-level growth and performance.
-- **Modern Standards**: Implements best practices for clean code and maintainability.
-- **Robust Integration**: Built to work seamlessly within modern cloud-native environments.
+Set `BIND_ADDR` to override the default `0.0.0.0:8080` bind address.
 
-## 🛠️ Technology Stack
-- **Primary Domain**: Rust
-- **Ecosystem**: SkyCoin4444 Digital Platform
+## Verification
 
-## 📂 Structure
-The project is organized into a modular structure to ensure clarity and ease of development.
+Because this repository does not yet commit `Cargo.lock`, CI first generates one and then performs locked verification:
 
-## 👨‍💻 Author
-**Skyler Blue Spillers**
-*Professional Chess Player & Software Engineer*
+```bash
+cargo generate-lockfile
+cargo fmt --all -- --check
+cargo check --all-targets --locked
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo test --all-targets --locked
+cargo audit
+cargo build --release --locked
+docker build -t sky-inventory .
+docker run --rm --entrypoint=id sky-inventory -u
+```
 
----
-*Powered by SkyCoin4444*
+The container is expected to run as UID `10001`, not root.
+
+## Architecture
+
+`src/lib.rs` owns inventory invariants and synchronization. The current store is an in-memory `HashMap` protected by a mutex and exposed through a small reusable domain API. `src/main.rs` maps that domain into HTTP endpoints.
+
+This is intentionally a compact engineering product. It is not a warehouse-management system, ERP, distributed inventory ledger, or durable database.
+
+## SKYCOIN4444 integration
+
+Keep this repository independently deployable. A SKYCOIN4444 marketplace, shop, or fulfillment adapter can call the HTTP API for development/demo inventory operations. Durable ecosystem inventory should add an explicit persistence adapter, authentication/authorization, reconciliation, audit history, and idempotency rather than copying this code into a flagship application.
+
+## Security and limitations
+
+The service does **not** currently provide persistence, authentication, authorization, tenant isolation, TLS termination, rate limiting, durable audit logs, reservation semantics, purchase-order workflows, or backup/restore. See [`SECURITY.md`](SECURITY.md) for boundaries and [`CHANGELOG.md`](CHANGELOG.md) for changes.
+
+## License
+
+See `LICENSE`.

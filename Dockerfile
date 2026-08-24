@@ -1,9 +1,15 @@
-FROM rust:1.73-slim as builder
+FROM rust:1.98-bookworm AS builder
 WORKDIR /app
-COPY . .
-RUN cargo build --release
+COPY Cargo.toml ./
+COPY src ./src
+RUN cargo generate-lockfile \
+    && cargo build --release --locked
+
 FROM debian:bookworm-slim
+RUN useradd --system --uid 10001 --create-home appuser
 WORKDIR /app
-COPY --from=builder /app/target/release/app ./app
+COPY --from=builder /app/target/release/app /usr/local/bin/sky-inventory
+USER 10001:10001
 EXPOSE 8080
-CMD ["./app"]
+ENV BIND_ADDR=0.0.0.0:8080
+ENTRYPOINT ["/usr/local/bin/sky-inventory"]
