@@ -42,10 +42,7 @@ async fn upsert(
     }
 }
 
-async fn get_item(
-    State(inventory): State<app::Inventory>,
-    Path(sku): Path<String>,
-) -> Response {
+async fn get_item(State(inventory): State<app::Inventory>, Path(sku): Path<String>) -> Response {
     match inventory.get(&sku) {
         Ok(Some(item)) => json_response(StatusCode::OK, item_json(item)),
         Ok(None) => json_response(
