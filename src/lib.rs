@@ -21,10 +21,10 @@ impl Inventory {
     pub fn upsert(&self, sku: &str, name: &str, quantity: i64) -> Result<Item, &'static str> {
         let sku = sku.trim();
         let name = name.trim();
-        if sku.is_empty() || sku.len() > 64 {
+        if sku.is_empty() || sku.chars().count() > 64 {
             return Err("sku must contain between 1 and 64 characters");
         }
-        if name.is_empty() || name.len() > 160 {
+        if name.is_empty() || name.chars().count() > 160 {
             return Err("name must contain between 1 and 160 characters");
         }
         if quantity < 0 {
@@ -42,6 +42,7 @@ impl Inventory {
     }
 
     pub fn get(&self, sku: &str) -> Result<Option<Item>, &'static str> {
+        let sku = sku.trim();
         let items = self.items.lock().map_err(|_| "inventory lock poisoned")?;
         Ok(items.get(sku).cloned())
     }
@@ -57,6 +58,7 @@ impl Inventory {
         if delta == 0 {
             return Err("delta cannot be zero");
         }
+        let sku = sku.trim();
         let mut items = self.items.lock().map_err(|_| "inventory lock poisoned")?;
         let item = items.get_mut(sku).ok_or("sku not found")?;
         let next = item
@@ -70,11 +72,9 @@ impl Inventory {
         Ok(item.clone())
     }
 
-    pub fn total_units(&self) -> Result<i64, &'static str> {
+    pub fn total_units(&self) -> Result<i128, &'static str> {
         let items = self.items.lock().map_err(|_| "inventory lock poisoned")?;
-        items.values().try_fold(0_i64, |total, item| {
-            total.checked_add(item.quantity).ok_or("quantity overflow")
-        })
+        Ok(items.values().map(|item| i128::from(item.quantity)).sum())
     }
 }
 
@@ -100,6 +100,22 @@ mod tests {
         assert_eq!(inventory.adjust("A-1", -2).unwrap().quantity, 3);
         assert!(inventory.adjust("A-1", -4).is_err());
         assert_eq!(inventory.get("A-1").unwrap().unwrap().quantity, 3);
+    }
+
+    #[test]
+    fn unicode_limits_count_characters() {
+        let inventory = Inventory::new();
+        let sku = "🚀".repeat(17);
+        let item = inventory.upsert(&sku, "全球库存", 1).unwrap();
+        assert_eq!(item.sku.chars().count(), 17);
+    }
+
+    #[test]
+    fn aggregate_quantity_uses_wider_counter() {
+        let inventory = Inventory::new();
+        inventory.upsert("A", "Alpha", i64::MAX).unwrap();
+        inventory.upsert("B", "Beta", i64::MAX).unwrap();
+        assert_eq!(inventory.total_units().unwrap(), i128::from(i64::MAX) * 2);
     }
 
     #[test]
