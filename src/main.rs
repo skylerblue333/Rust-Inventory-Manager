@@ -32,10 +32,7 @@ async fn upsert(
     }
 }
 
-async fn get_item(
-    inventory: web::Data<app::Inventory>,
-    sku: web::Path<String>,
-) -> impl Responder {
+async fn get_item(inventory: web::Data<app::Inventory>, sku: web::Path<String>) -> impl Responder {
     match inventory.get(&sku.into_inner()) {
         Ok(Some(item)) => HttpResponse::Ok().json(item_json(item)),
         Ok(None) => HttpResponse::NotFound().json(serde_json::json!({"error": "sku not found"})),
@@ -62,7 +59,9 @@ async fn adjust(
 ) -> impl Responder {
     match inventory.adjust(&sku.into_inner(), req.delta) {
         Ok(item) => HttpResponse::Ok().json(item_json(item)),
-        Err("sku not found") => HttpResponse::NotFound().json(serde_json::json!({"error": "sku not found"})),
+        Err("sku not found") => {
+            HttpResponse::NotFound().json(serde_json::json!({"error": "sku not found"}))
+        }
         Err(error) => HttpResponse::BadRequest().json(serde_json::json!({"error": error})),
     }
 }
@@ -73,7 +72,9 @@ async fn health() -> impl Responder {
 
 async fn ready(inventory: web::Data<app::Inventory>) -> impl Responder {
     match inventory.total_units() {
-        Ok(units) => HttpResponse::Ok().json(serde_json::json!({"status": "ready", "units": units})),
+        Ok(units) => {
+            HttpResponse::Ok().json(serde_json::json!({"status": "ready", "units": units}))
+        }
         Err(error) => HttpResponse::ServiceUnavailable().json(serde_json::json!({"error": error})),
     }
 }
